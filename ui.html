@@ -296,33 +296,12 @@
       } else if (msg.type === 'error') {
         showStatus(msg.message, 'error');
         hideProgress();
-      } else if (msg.type === 'smart-export-ready') {
-        setButtonLoading(btnSmartExport, false);
-        showProgress('Fetching design from Figma...');
-        await uploadSmartExport(msg.data);
-      } else if (msg.type === 'need-file-key') {
-        hideProgress();
-        if (status) {
-          status.innerHTML = `
-      <div style="font-size:12px;margin-bottom:8px;">📋 Paste your Figma file URL to continue:</div>
-      <input id="figma-url-input" type="text" placeholder="https://www.figma.com/design/..." 
-        style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#333;color:#fff;font-size:12px;margin-bottom:8px;outline:none;" />
-      <button id="figma-url-submit" style="width:100%;padding:8px;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">
-        Continue Smart Export
-      </button>
-    `;
-          status.className = 'status info';
-          document.getElementById('figma-url-submit').addEventListener('click', () => {
-            const url = document.getElementById('figma-url-input').value;
-            const match = url.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9]+)/);
-            if (match) {
-              parent.postMessage({ pluginMessage: { type: 'file-key-response', fileKey: match[1] } }, '*');
-              showProgress('Continuing Smart Export...');
-            } else {
-              showStatus('❌ Invalid URL. Copy the URL from your Figma browser tab.', 'error');
-            }
-          });
-        }
+      } else if (msg.type === 'export-complete') {
+        showProgress('Uploading to SlideDev...');
+        await uploadToSlideDev(msg.data);
+      } else if (msg.type === 'smart-frame-ready') {
+        showProgress(`Uploading ${msg.data.frameIndex + 1}/${msg.data.totalFrames}: ${msg.data.node.name}...`);
+        await uploadSmartFrame(msg.data);
       }
     });
 
@@ -402,29 +381,39 @@
       }
     }
 
-    async function uploadSmartExport(data) {
+    let smartImportId = null;
+
+    async function uploadSmartFrame(data) {
       try {
-        showProgress('Fetching design data from Figma API...');
         const response = await fetch(SMART_API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify({
-            fileKey: data.fileKey,
-            nodeIds: data.nodeIds,
             fileName: data.fileName,
-            batchIndex: 0,
-            totalBatches: 1
+            nodes: [data.node],
+            images: {},
+            importId: smartImportId,
+            batchIndex: data.frameIndex,
+            totalBatches: data.totalFrames,
           })
         });
         if (!response.ok) throw new Error(await response.text());
         const result = await response.json();
-        const importUrl = `https://app.slidedevai.com?importId=${result.importId}&mode=smart`;
-        parent.postMessage({ pluginMessage: { type: 'open-url', url: importUrl } }, '*');
-        showStatus('✅ Smart Export complete! Opening SlideDev...', 'success');
-        setTimeout(() => parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*'), 3000);
+        if (!smartImportId) smartImportId = result.importId;
+
+        // Tell plugin backend this frame is uploaded, ready for next
+        parent.postMessage({ pluginMessage: { type: 'frame-uploaded' } }, '*');
+
+        if (data.isLast) {
+          const importUrl = `https://app.slidedevai.com?importId=${smartImportId}&mode=smart`;
+          parent.postMessage({ pluginMessage: { type: 'open-url', url: importUrl } }, '*');
+          showStatus('✅ Smart Export complete! Opening SlideDev...', 'success');
+          smartImportId = null;
+          setTimeout(() => parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*'), 3000);
+        }
       } catch (error) {
         showStatus(`❌ Smart Export failed: ${error.message}`, 'error');
+        parent.postMessage({ pluginMessage: { type: 'frame-uploaded' } }, '*'); // unblock even on error
       }
     }
   </script>

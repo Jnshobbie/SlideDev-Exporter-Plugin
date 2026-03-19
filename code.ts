@@ -22,20 +22,15 @@ async function exportFrames(frames: SceneNode[], context: string, pagesData?: Ar
     });
 
     try {
-      // Export as PNG (2x resolution for quality)
       const isLargeFrame = (frame as FrameNode).height > 2000 || (frame as FrameNode).width > 2000;
 
       const imageBytes = await (frame as ExportMixin).exportAsync({
         format: 'PNG',
         constraint: { type: 'SCALE', value: isLargeFrame ? 1 : 2 }
       });
-      console.log(` Exported ${frame.name}: ${imageBytes.length} bytes`);
 
-      // Convert to base64
       const base64 = figma.base64Encode(imageBytes);
-      console.log(` Converted to base64: ${base64.length} chars`);
 
-      // Get parent page name
       let pageName = 'Unknown Page';
       let parent = frame.parent;
       while (parent && parent.type !== 'PAGE') {
@@ -63,9 +58,6 @@ async function exportFrames(frames: SceneNode[], context: string, pagesData?: Ar
     }
   }
 
-  console.log(`✅ Export complete: ${exportedFrames.length} frames`);
-
-  // Send to UI for upload
   figma.ui.postMessage({
     type: 'export-complete',
     data: {
@@ -75,24 +67,17 @@ async function exportFrames(frames: SceneNode[], context: string, pagesData?: Ar
       frames: exportedFrames
     }
   });
-  console.log('📨 Sent export-complete message to UI');
 }
 
-// Export selected frames
 async function exportSelection() {
-  console.log('🔍 Getting selection...');
   const selection = figma.currentPage.selection;
-  console.log(`📊 Selection count: ${selection.length}`);
-
   const frames = selection.filter(node =>
     node.type === 'FRAME' ||
     node.type === 'COMPONENT' ||
     node.type === 'INSTANCE'
   );
-  console.log(`🖼️ Frames found: ${frames.length}`);
 
   if (frames.length === 0) {
-    console.warn('⚠️ No frames selected');
     figma.ui.postMessage({
       type: 'error',
       message: 'No frames selected. Please select at least one frame.'
@@ -103,17 +88,13 @@ async function exportSelection() {
   await exportFrames(frames, 'Selected Frames');
 }
 
-// Export current page
 async function exportCurrentPage() {
-  console.log('📄 Exporting current page...');
   const frames = figma.currentPage.findAll(node =>
     node.type === 'FRAME' ||
     node.type === 'COMPONENT'
   );
-  console.log(`🖼️ Found ${frames.length} frames on current page`);
 
   if (frames.length === 0) {
-    console.warn('⚠️ No frames found on current page');
     figma.ui.postMessage({
       type: 'error',
       message: 'No frames found on current page.'
@@ -124,9 +105,7 @@ async function exportCurrentPage() {
   await exportFrames(frames as SceneNode[], figma.currentPage.name);
 }
 
-// Export all pages
 async function exportAllPages() {
-  console.log('🌐 Exporting all pages...');
   const allFrames: SceneNode[] = [];
   const pagesData: Array<{ name: string; frameCount: number }> = [];
 
@@ -137,25 +116,18 @@ async function exportAllPages() {
     );
 
     if (frames.length > 0) {
-      console.log(`📄 Page "${page.name}": ${frames.length} frames`);
-      pagesData.push({
-        name: page.name,
-        frameCount: frames.length
-      });
+      pagesData.push({ name: page.name, frameCount: frames.length });
       allFrames.push(...frames as SceneNode[]);
     }
   }
 
   if (allFrames.length === 0) {
-    console.warn('⚠️ No frames found in file');
     figma.ui.postMessage({
       type: 'error',
       message: 'No frames found in entire file.'
     });
     return;
   }
-
-  console.log(`✅ Found ${allFrames.length} total frames across ${pagesData.length} pages`);
 
   figma.ui.postMessage({
     type: 'progress',
@@ -165,106 +137,159 @@ async function exportAllPages() {
   await exportFrames(allFrames, 'All Pages', pagesData);
 }
 
-async function smartExport(frames: SceneNode[], providedFileKey?: string) {
-  figma.ui.postMessage({ type: 'progress', message: 'Preparing Smart Export...' });
-
-// Try provided key first, then figma.fileKey
-let fileKey = providedFileKey || figma.fileKey || rawFileKey;
-
-if (!fileKey) {
-  // Extract from figma URL pattern: figma.com/design/{fileKey}/...
-  const url = (figma as unknown as { currentPage: { parent: { id: string } } }).currentPage?.parent?.id;
-  console.log('🔑 Trying parent ID:', url);
-}
-
-console.log('🔑 File key:', fileKey);
-
-if (!fileKey) {
-  // Send message to UI to get the URL from the browser
-  figma.ui.postMessage({ type: 'need-file-key' });
-  return;
-}
-
-  // Get direct children if parent frame selected
-  const nodeIds: string[] = [];
+// Smart Export — sequential node extraction, one frame at a time
+async function smartExport(frames: SceneNode[]) {
+  // Flatten parent frames into their direct children
+  const framesToExtract: SceneNode[] = [];
   for (const frame of frames) {
     if ('children' in frame && frame.children.length > 0) {
       const childFrames = frame.children.filter(c =>
         c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'SECTION'
-      );
+      ) as SceneNode[];
       if (childFrames.length > 0) {
-        childFrames.forEach(c => nodeIds.push(c.id));
+        framesToExtract.push(...childFrames);
       } else {
-        nodeIds.push(frame.id);
+        framesToExtract.push(frame);
       }
     } else {
-      nodeIds.push(frame.id);
+      framesToExtract.push(frame);
     }
   }
 
-  figma.ui.postMessage({ 
-    type: 'smart-export-ready', 
-    data: { 
-      fileKey, 
-      nodeIds, 
-      fileName: figma.root.name 
-    } 
+  const totalFrames = framesToExtract.length;
+  figma.ui.postMessage({
+    type: 'progress',
+    message: `Starting Smart Export of ${totalFrames} sections...`
   });
+
+  // Extract frames one by one — send each to UI for upload as we go
+  for (let i = 0; i < framesToExtract.length; i++) {
+    const frame = framesToExtract[i];
+    figma.ui.postMessage({
+      type: 'progress',
+      message: `Extracting ${i + 1}/${totalFrames}: ${frame.name}...`
+    });
+
+    const nodeData = await extractNode(frame);
+
+    // Send each frame individually to UI for sequential upload
+    figma.ui.postMessage({
+      type: 'smart-frame-ready',
+      data: {
+        node: nodeData,
+        fileName: figma.root.name,
+        frameIndex: i,
+        totalFrames,
+        isLast: i === framesToExtract.length - 1,
+      }
+    });
+
+    // Wait for UI to confirm upload before moving to next frame
+    await new Promise<void>(resolve => {
+      const handler = (msg: { type: string }) => {
+        if (msg.type === 'frame-uploaded') {
+          figma.ui.off('message', handler);
+          resolve();
+        }
+      };
+      figma.ui.on('message', handler);
+    });
+  }
 }
 
-// Get file key from figma or from the file's node ID
-const rawFileKey = figma.fileKey ?? (() => {
-  try {
-    // On free plan, extract from root node ID which contains the file key
-    const rootId = figma.root.id;
-    console.log('🔑 Root ID:', rootId);
-    return rootId.split(':')[0] || null;
-  } catch {
-    return null;
-  }
-})();
+// Extract node data (depth limited to avoid timeout)
+async function extractNode(node: SceneNode, depth = 0): Promise<object> {
+  const base: Record<string, unknown> = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    x: 'x' in node ? node.x : 0,
+    y: 'y' in node ? node.y : 0,
+    width: 'width' in node ? node.width : 0,
+    height: 'height' in node ? node.height : 0,
+  };
 
-console.log('🔑 Resolved file key:', rawFileKey);
+  if ('fills' in node) base.fills = node.fills;
+  if ('strokes' in node) base.strokes = node.strokes;
+  if ('effects' in node) base.effects = node.effects;
+  if ('opacity' in node) base.opacity = node.opacity;
+  if ('cornerRadius' in node) base.cornerRadius = node.cornerRadius;
+
+  if ('layoutMode' in node) {
+    base.layoutMode = node.layoutMode;
+    base.paddingTop = node.paddingTop;
+    base.paddingBottom = node.paddingBottom;
+    base.paddingLeft = node.paddingLeft;
+    base.paddingRight = node.paddingRight;
+    base.itemSpacing = node.itemSpacing;
+    base.primaryAxisAlignItems = node.primaryAxisAlignItems;
+    base.counterAxisAlignItems = node.counterAxisAlignItems;
+  }
+
+  if (node.type === 'TEXT') {
+    base.characters = node.characters;
+    base.fontSize = node.fontSize;
+    base.fontName = node.fontName;
+    base.fontWeight = 'fontWeight' in node ? node.fontWeight : undefined;
+    base.textAlignHorizontal = node.textAlignHorizontal;
+    base.lineHeight = node.lineHeight;
+    base.letterSpacing = node.letterSpacing;
+  }
+
+  // Only extract images from nodes with actual image fills
+  if ('fills' in node && Array.isArray(node.fills)) {
+    const hasImageFill = node.fills.some((f: Paint) => f.type === 'IMAGE');
+    if (hasImageFill && 'exportAsync' in node) {
+      try {
+        const bytes = await (node as ExportMixin).exportAsync({
+          format: 'PNG',
+          constraint: { type: 'SCALE', value: 1 }
+        });
+        base.imageData = figma.base64Encode(bytes);
+      } catch { }
+    }
+  }
+
+  if ('children' in node && depth < 3) {
+    base.children = [];
+    for (const child of node.children) {
+      const childData = await extractNode(child as SceneNode, depth + 1);
+      (base.children as object[]).push(childData);
+    }
+  }
+
+  return base;
+}
 
 // Show plugin UI
-console.log('🚀 Plugin starting...');
 figma.showUI(__html__, {
   width: 400,
   height: 600,
   themeColors: true
 });
-console.log('✅ UI shown');
 
 // Listen for messages from UI
 figma.ui.onmessage = async (msg) => {
   console.log('📨 Received message from UI:', msg);
 
   if (msg.type === 'export-selection') {
-    console.log('▶️ Starting export selection');
     await exportSelection();
   } else if (msg.type === 'export-page') {
-    console.log('▶️ Starting export page');
     await exportCurrentPage();
   } else if (msg.type === 'export-all') {
-    console.log('▶️ Starting export all');
     await exportAllPages();
   } else if (msg.type === 'smart-export') {
-    const selection = figma.currentPage.selection.filter(n => n.type === 'FRAME' || n.type === 'COMPONENT');
+    const selection = figma.currentPage.selection.filter(n =>
+      n.type === 'FRAME' || n.type === 'COMPONENT'
+    );
     if (selection.length === 0) {
       figma.ui.postMessage({ type: 'error', message: 'No frames selected for Smart Export.' });
       return;
     }
     await smartExport(selection as SceneNode[]);
-  } else if (msg.type === 'file-key-response') {
-    const sel = figma.currentPage.selection.filter(n => n.type === 'FRAME' || n.type === 'COMPONENT');
-    await smartExport(sel as SceneNode[], msg.fileKey as string);
   } else if (msg.type === 'cancel') {
-    console.log('🔒 Closing plugin');
     figma.closePlugin();
   } else if (msg.type === 'open-url') {
     figma.openExternal(msg.url as string);
-  } else {
-    console.warn('⚠️ Unknown message type:', msg.type);
   }
 };
-console.log('✅ Message listener attached');
