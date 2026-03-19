@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 16px;
+      background: #2C2C2C;
+      color: #fff;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: #999;
+      margin-bottom: 24px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    button {
+      background: #18A0FB;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button:hover {
+      background: #0D8CE8;
+    }
+
+    button:active {
+      background: #0A7AC7;
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    button.secondary {
+      background: #444;
+    }
+
+    button.secondary:hover {
+      background: #555;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    button.loading .spinner {
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .status {
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-top: 12px;
+      display: none;
+      word-wrap: break-word;
+    }
+
+    .status.error {
+      background: #FF3B30;
+      color: white;
+      display: block;
+    }
+
+    .status.success {
+      background: #34C759;
+      color: white;
+      display: block;
+    }
+
+    .status.info {
+      background: #444;
+      color: #fff;
+      display: block;
+    }
+
+    .progress {
+      margin-top: 16px;
+      padding: 12px;
+      background: #444;
+      border-radius: 6px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .progress.visible {
+      display: block;
+    }
+
+    .logo-img {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 16px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+
+<body>
+  <img src="https://app.slidedevai.com/logo.png" alt="SlideDev" class="logo-img" />
+  <h1>SlideDev Exporter</h1>
+  <p class="subtitle">Export your Figma designs to SlideDev</p>
+
+  <div class="button-group">
+    <button id="export-selection">
+      <span>Export Selected Frames as PNG</span>
+      <span class="spinner"></span>
+    </button>
+    <button id="export-page">
+      <span>Export Current Page</span>
+      <span class="spinner"></span>
+    </button>
+    <button id="export-all">
+      <span>Export All Pages</span>
+      <span class="spinner"></span>
+    </button>
+    <button id="smart-export" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+      <span>✦ Smart Export</span>
+      <span class="spinner"></span>
+    </button>
+    <button id="cancel" class="secondary">Cancel</button>
+  </div>
+
+  <div id="progress" class="progress"></div>
+  <div id="status" class="status"></div>
+
+  <script>
+    // Hardcoded API URL (change to production URL before publishing)
+    const API_URL = 'https://app.slidedevai.com/api/figma/plugin-import';
+
+    // Get DOM elements
+    const progress = document.getElementById('progress');
+    const status = document.getElementById('status');
+    const btnExportSelection = document.getElementById('export-selection');
+    const btnExportPage = document.getElementById('export-page');
+    const btnExportAll = document.getElementById('export-all');
+    const btnCancel = document.getElementById('cancel');
+    const btnSmartExport = document.getElementById('smart-export');
+    const SMART_API_URL = 'https://app.slidedevai.com/api/figma/smart-import';
+
+    console.log('🚀 Plugin UI loaded');
+
+    // Helper to show button loading state
+    function setButtonLoading(button, loading) {
+      if (!button) return;
+      if (loading) {
+        button.classList.add('loading');
+        button.disabled = true;
+      } else {
+        button.classList.remove('loading');
+        button.disabled = false;
+      }
+    }
+
+    // Helper functions
+    function showProgress(message) {
+      console.log(`📊 ${message}`);
+      if (progress) {
+        progress.textContent = message;
+        progress.classList.add('visible');
+      }
+      if (status) {
+        status.style.display = 'none';
+      }
+    }
+
+    function hideProgress() {
+      if (progress) {
+        progress.classList.remove('visible');
+      }
+    }
+
+    function showStatus(message, type) {
+      console.log(`📢 [${type}] ${message}`);
+      if (status) {
+        status.textContent = message;
+        status.className = `status ${type}`;
+      }
+      hideProgress();
+    }
+
+    // Button handlers
+    if (btnExportSelection) {
+      btnExportSelection.addEventListener('click', () => {
+        console.log('🖱️ Export Selection clicked');
+        setButtonLoading(btnExportSelection, true);
+        showStatus('Preparing export...', 'info');
+        parent.postMessage({ pluginMessage: { type: 'export-selection' } }, '*');
+      });
+    }
+
+    if (btnExportPage) {
+      btnExportPage.addEventListener('click', () => {
+        console.log('🖱️ Export Page clicked');
+        setButtonLoading(btnExportPage, true);
+        showStatus('Preparing export...', 'info');
+        parent.postMessage({ pluginMessage: { type: 'export-page' } }, '*');
+      });
+    }
+
+    if (btnExportAll) {
+      btnExportAll.addEventListener('click', () => {
+        console.log('🖱️ Export All clicked');
+        setButtonLoading(btnExportAll, true);
+        showStatus('Preparing export...', 'info');
+        parent.postMessage({ pluginMessage: { type: 'export-all' } }, '*');
+      });
+    }
+
+    if (btnCancel) {
+      btnCancel.addEventListener('click', () => {
+        console.log('🖱️ Cancel clicked');
+        showStatus('Closing plugin...', 'info');
+        parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+      });
+    }
+
+    if (btnSmartExport) {
+      btnSmartExport.addEventListener('click', () => {
+        setButtonLoading(btnSmartExport, true);
+        showStatus('Extracting design data...', 'info');
+        parent.postMessage({ pluginMessage: { type: 'smart-export' } }, '*');
+      });
+    }
+
+    // Listen for messages from plugin backend
+    window.addEventListener('message', async (event) => {
+      console.log(`📨 Received message:`, event.data);
+
+      if (!event.data || !event.data.pluginMessage) {
+        return;
+      }
+
+      const msg = event.data.pluginMessage;
+      console.log(`📦 Message type: ${msg.type}`);
+
+      // Remove loading state from all buttons
+      setButtonLoading(btnExportSelection, false);
+      setButtonLoading(btnExportPage, false);
+      setButtonLoading(btnExportAll, false);
+
+
+      if (msg.type === 'progress') {
+        showProgress(msg.message);
+      } else if (msg.type === 'error') {
+        showStatus(msg.message, 'error');
+        hideProgress();
+      } else if (msg.type === 'smart-export-ready') {
+        setButtonLoading(btnSmartExport, false);
+        showProgress('Fetching design from Figma...');
+        await uploadSmartExport(msg.data);
+      } else if (msg.type === 'need-file-key') {
+        hideProgress();
+        if (status) {
+          status.innerHTML = `
+      <div style="font-size:12px;margin-bottom:8px;">📋 Paste your Figma file URL to continue:</div>
+      <input id="figma-url-input" type="text" placeholder="https://www.figma.com/design/..." 
+        style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#333;color:#fff;font-size:12px;margin-bottom:8px;outline:none;" />
+      <button id="figma-url-submit" style="width:100%;padding:8px;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">
+        Continue Smart Export
+      </button>
+    `;
+          status.className = 'status info';
+          document.getElementById('figma-url-submit').addEventListener('click', () => {
+            const url = document.getElementById('figma-url-input').value;
+            const match = url.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9]+)/);
+            if (match) {
+              parent.postMessage({ pluginMessage: { type: 'file-key-response', fileKey: match[1] } }, '*');
+              showProgress('Continuing Smart Export...');
+            } else {
+              showStatus('❌ Invalid URL. Copy the URL from your Figma browser tab.', 'error');
+            }
+          });
+        }
+      }
+    });
+
+    console.log('✅ Plugin UI fully initialized');
+
+    async function uploadToSlideDev(data) {
+      console.log(`🌐 Uploading to: ${API_URL}`);
+
+      try {
+        const BATCH_SIZE = 10;
+        const frames = data.frames.map(frame => ({
+          id: frame.id,
+          name: frame.name,
+          pageName: frame.pageName,
+          width: frame.width,
+          height: frame.height,
+          imageData: `data:image/png;base64,${frame.imageData}`,
+          type: frame.type
+        }));
+
+        const totalBatches = Math.ceil(frames.length / BATCH_SIZE);
+        let importId = null;
+
+        for (let i = 0; i < totalBatches; i++) {
+          const batch = frames.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+          showProgress(`Uploading batch ${i + 1}/${totalBatches}...`);
+
+          const payload = {
+            fileName: data.fileName,
+            context: data.context,
+            pages: data.pages,
+            frames: batch,
+            batchIndex: i,
+            totalBatches,
+            importId, // null on first batch, filled after
+          };
+
+          const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || 'Upload failed');
+          }
+
+          const result = await response.json();
+
+          if (!importId) {
+            importId = result.importId; // grab importId from first batch
+          }
+        }
+
+        if (!importId) {
+          showStatus('❌ No importId received from server', 'error');
+          return;
+        }
+
+        showStatus(`✅ Successfully exported ${frames.length} frames!`, 'success');
+
+        const slidedevUrl = API_URL.replace('/api/figma/plugin-import', '');
+        const importUrl = `${slidedevUrl}?importId=${importId}`;
+
+        parent.postMessage({ pluginMessage: { type: 'open-url', url: importUrl } }, '*');
+
+        showStatus(`✅ Opening SlideDev... You can close this plugin now.`, 'success');
+
+        setTimeout(() => {
+          parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+        }, 3000);
+
+      } catch (error) {
+        console.error(`❌ Upload error:`, error);
+        showStatus(`❌ Upload failed: ${error.message}`, 'error');
+      }
+    }
+
+    async function uploadSmartExport(data) {
+      try {
+        showProgress('Fetching design data from Figma API...');
+        const response = await fetch(SMART_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            fileKey: data.fileKey,
+            nodeIds: data.nodeIds,
+            fileName: data.fileName,
+            batchIndex: 0,
+            totalBatches: 1
+          })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
+        const importUrl = `https://app.slidedevai.com?importId=${result.importId}&mode=smart`;
+        parent.postMessage({ pluginMessage: { type: 'open-url', url: importUrl } }, '*');
+        showStatus('✅ Smart Export complete! Opening SlideDev...', 'success');
+        setTimeout(() => parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*'), 3000);
+      } catch (error) {
+        showStatus(`❌ Smart Export failed: ${error.message}`, 'error');
+      }
+    }
+  </script>
+</body>
+
+</html>

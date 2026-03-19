@@ -1,0 +1,7 @@
+# gitignore
+.env 
+
+# Ignore node_modules and dist folders
+node_modules/ 
+dist/
+manifest.json
