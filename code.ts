@@ -172,11 +172,14 @@ async function smartExport(frames: SceneNode[]) {
 
     const nodeData = await extractNode(frame);
 
+    // Sanitize entire node to remove any Figma Symbols before postMessage
+    const safeNodeData = JSON.parse(JSON.stringify(nodeData));
+
     // Send each frame individually to UI for sequential upload
     figma.ui.postMessage({
       type: 'smart-frame-ready',
       data: {
-        node: nodeData,
+        node: safeNodeData,
         fileName: figma.root.name,
         frameIndex: i,
         totalFrames,
