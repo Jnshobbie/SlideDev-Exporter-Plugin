@@ -209,9 +209,9 @@ async function extractNode(node: SceneNode, depth = 0): Promise<object> {
     height: 'height' in node ? node.height : 0,
   };
 
-  if ('fills' in node) base.fills = node.fills;
-  if ('strokes' in node) base.strokes = node.strokes;
-  if ('effects' in node) base.effects = node.effects;
+  if ('fills' in node) base.fills = JSON.parse(JSON.stringify(node.fills));
+  if ('strokes' in node) base.strokes = JSON.parse(JSON.stringify(node.strokes));
+  if ('effects' in node) base.effects = JSON.parse(JSON.stringify(node.effects));
   if ('opacity' in node) base.opacity = node.opacity;
   if ('cornerRadius' in node) base.cornerRadius = node.cornerRadius;
 
@@ -228,12 +228,12 @@ async function extractNode(node: SceneNode, depth = 0): Promise<object> {
 
   if (node.type === 'TEXT') {
     base.characters = node.characters;
-    base.fontSize = node.fontSize;
-    base.fontName = node.fontName;
-    base.fontWeight = 'fontWeight' in node ? node.fontWeight : undefined;
+    base.fontSize = typeof node.fontSize === 'number' ? node.fontSize : 0;
+    base.fontName = JSON.parse(JSON.stringify(node.fontName));
+    base.fontWeight = typeof node.fontWeight === 'number' ? node.fontWeight : undefined;
     base.textAlignHorizontal = node.textAlignHorizontal;
-    base.lineHeight = node.lineHeight;
-    base.letterSpacing = node.letterSpacing;
+    base.lineHeight = JSON.parse(JSON.stringify(node.lineHeight));
+    base.letterSpacing = JSON.parse(JSON.stringify(node.letterSpacing));
   }
 
   // Only extract images from nodes with actual image fills
