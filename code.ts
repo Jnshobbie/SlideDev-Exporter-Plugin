@@ -253,7 +253,7 @@ async function extractNode(node: SceneNode, depth = 0): Promise<object> {
     }
   }
 
-  if ('children' in node && depth < 2 && node.type !== 'TEXT') {
+  if ('children' in node && depth < 3) {
     base.children = [];
     for (const child of node.children) {
       const childData = await extractNode(child as SceneNode, depth + 1);
