@@ -246,7 +246,7 @@ async function extractNode(node: SceneNode, depth = 0): Promise<object> {
       try {
         const bytes = await (node as ExportMixin).exportAsync({
           format: 'PNG',
-          constraint: { type: 'SCALE', value: 1 }
+          constraint: { type: 'SCALE', value: 0.5 } // small size to reduce payload
         });
         base.imageData = figma.base64Encode(bytes);
       } catch { }
